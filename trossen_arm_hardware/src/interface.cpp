@@ -27,11 +27,32 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "trossen_arm_hardware/interface.hpp"
+#include <dlfcn.h>
 
 namespace trossen_arm_hardware
 {
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+namespace
+{
+
+// Exported symbol in libtrossen_arm for Logger::DEFAULT_LOGGER_NAME (std::string).
+constexpr char DEFAULT_TROSSEN_LOGGER_NAME_SYMBOL[] =
+  "_ZN11trossen_arm6Logger19DEFAULT_LOGGER_NAMEB5cxx11E";
+
+void set_driver_default_logger_name(const std::string & logger_name)
+{
+  void * symbol = dlsym(RTLD_DEFAULT, DEFAULT_TROSSEN_LOGGER_NAME_SYMBOL);
+  if (!symbol) {
+    return;
+  }
+
+  auto * default_logger_name = static_cast<std::string *>(symbol);
+  *default_logger_name = logger_name;
+}
+
+}  // namespace
 
 CallbackReturn
 TrossenArmHardwareInterface::on_init(const hardware_interface::HardwareInfo & info)
@@ -273,6 +294,14 @@ CallbackReturn
 TrossenArmHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(get_logger(), "Configuring the Trossen Arm Driver...");
+
+  // The underlying libtrossen_arm constructor uses a global default logger name.
+  // In dual-arm bringup, both hardware instances are created in one process, so
+  // each instance must have a unique logger name to avoid a collision.
+  const auto driver_logger_name = TrossenArmDriver::get_logger_name(
+    robot_model_, driver_ip_address_);
+  set_driver_default_logger_name(driver_logger_name);
+
   try {
     arm_driver_ = std::make_unique<TrossenArmDriver>();
   } catch (const std::exception & e) {
