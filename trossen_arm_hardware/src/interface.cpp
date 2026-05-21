@@ -375,6 +375,28 @@ TrossenArmHardwareInterface::read(
   // Get joint positions
   joint_positions_ = robot_output_.joint.all.positions;
 
+  // Real hardware can occasionally report tiny negative values near zero on
+  // bounded shoulder/elbow joints due to encoder quantization/noise.
+  // MoveIt treats those as start-state bound violations and aborts planning.
+  // Clamp only very small negative values for joint_1/joint_2 to zero.
+  constexpr double kNearZeroNegativeEpsilon = 1e-3;
+  for (size_t i = 0; i < info_.joints.size(); ++i) {
+    const std::string & joint_name = info_.joints[i].name;
+    const bool is_joint_1_or_2 = (
+      joint_name == "follower_left_joint_1" ||
+      joint_name == "follower_left_joint_2" ||
+      joint_name == "follower_right_joint_1" ||
+      joint_name == "follower_right_joint_2");
+
+    if (!is_joint_1_or_2) {
+      continue;
+    }
+
+    if (joint_positions_[i] < 0.0 && joint_positions_[i] > -kNearZeroNegativeEpsilon) {
+      joint_positions_[i] = 0.0;
+    }
+  }
+
   // Get joint velocities
   joint_velocities_ = robot_output_.joint.all.velocities;
 
