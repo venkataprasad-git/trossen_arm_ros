@@ -380,6 +380,7 @@ TrossenArmHardwareInterface::read(
   // MoveIt treats those as start-state bound violations and aborts planning.
   // Clamp only very small negative values for joint_1/joint_2 to zero.
   constexpr double kNearZeroNegativeEpsilon = 1e-3;
+  static bool logged_near_zero_clamp_once = false;
   for (size_t i = 0; i < info_.joints.size(); ++i) {
     const std::string & joint_name = info_.joints[i].name;
     const bool is_joint_1_or_2 = (
@@ -393,6 +394,13 @@ TrossenArmHardwareInterface::read(
     }
 
     if (joint_positions_[i] < 0.0 && joint_positions_[i] > -kNearZeroNegativeEpsilon) {
+      if (!logged_near_zero_clamp_once) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Clamping near-zero negative encoder values on bounded joints (epsilon=%g).",
+          kNearZeroNegativeEpsilon);
+        logged_near_zero_clamp_once = true;
+      }
       joint_positions_[i] = 0.0;
     }
   }
