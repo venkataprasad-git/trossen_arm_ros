@@ -156,9 +156,9 @@ protected:
 
   // Logger
   rclcpp::Logger get_logger() const override
-  {
-    return rclcpp::get_logger("trossen_arm_hardware");
-  }
+{
+  return rclcpp::get_logger("trossen_arm_hardware");
+}
 
   /**
    * @brief Check if the interface type is in the stop interfaces

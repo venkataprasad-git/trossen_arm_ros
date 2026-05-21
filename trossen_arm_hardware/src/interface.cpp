@@ -27,40 +27,11 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "trossen_arm_hardware/interface.hpp"
-#include <atomic>
-#include <dlfcn.h>
 
 namespace trossen_arm_hardware
 {
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
-
-namespace
-{
-
-// Exported symbol in libtrossen_arm for Logger::DEFAULT_LOGGER_NAME (std::string).
-constexpr char DEFAULT_TROSSEN_LOGGER_NAME_SYMBOL[] =
-  "_ZN11trossen_arm6Logger19DEFAULT_LOGGER_NAMEB5cxx11E";
-
-void set_driver_default_logger_name(const std::string & logger_name)
-{
-  void * symbol = dlsym(RTLD_DEFAULT, DEFAULT_TROSSEN_LOGGER_NAME_SYMBOL);
-  if (!symbol) {
-    return;
-  }
-
-  auto * default_logger_name = static_cast<std::string *>(symbol);
-  *default_logger_name = logger_name;
-}
-
-std::string make_unique_boot_logger_name(const std::string & ip_address)
-{
-  static std::atomic<uint64_t> counter{0};
-  const auto suffix = counter.fetch_add(1, std::memory_order_relaxed);
-  return "trossen_arm_driver_boot@" + ip_address + "_" + std::to_string(suffix);
-}
-
-}  // namespace
 
 CallbackReturn
 TrossenArmHardwareInterface::on_init(const hardware_interface::HardwareInfo & info)
@@ -302,14 +273,6 @@ CallbackReturn
 TrossenArmHardwareInterface::on_configure(const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(get_logger(), "Configuring the Trossen Arm Driver...");
-
-  // The underlying libtrossen_arm constructor uses a global default logger name.
-  // In dual-arm bringup, both hardware instances are created in one process.
-  // Give each constructor call a unique temporary logger name so the second
-  // hardware instance does not collide before configure() assigns its final
-  // model+ip specific logger name.
-  set_driver_default_logger_name(make_unique_boot_logger_name(driver_ip_address_));
-
   try {
     arm_driver_ = std::make_unique<TrossenArmDriver>();
   } catch (const std::exception & e) {
@@ -374,36 +337,6 @@ TrossenArmHardwareInterface::read(
 
   // Get joint positions
   joint_positions_ = robot_output_.joint.all.positions;
-
-  // Real hardware can occasionally report tiny negative values near zero on
-  // bounded shoulder/elbow joints due to encoder quantization/noise.
-  // MoveIt treats those as start-state bound violations and aborts planning.
-  // Clamp only very small negative values for joint_1/joint_2 to zero.
-  constexpr double kNearZeroNegativeEpsilon = 1e-3;
-  static bool logged_near_zero_clamp_once = false;
-  for (size_t i = 0; i < info_.joints.size(); ++i) {
-    const std::string & joint_name = info_.joints[i].name;
-    const bool is_joint_1_or_2 = (
-      joint_name == "follower_left_joint_1" ||
-      joint_name == "follower_left_joint_2" ||
-      joint_name == "follower_right_joint_1" ||
-      joint_name == "follower_right_joint_2");
-
-    if (!is_joint_1_or_2) {
-      continue;
-    }
-
-    if (joint_positions_[i] < 0.0 && joint_positions_[i] > -kNearZeroNegativeEpsilon) {
-      if (!logged_near_zero_clamp_once) {
-        RCLCPP_WARN(
-          get_logger(),
-          "Clamping near-zero negative encoder values on bounded joints (epsilon=%g).",
-          kNearZeroNegativeEpsilon);
-        logged_near_zero_clamp_once = true;
-      }
-      joint_positions_[i] = 0.0;
-    }
-  }
 
   // Get joint velocities
   joint_velocities_ = robot_output_.joint.all.velocities;
