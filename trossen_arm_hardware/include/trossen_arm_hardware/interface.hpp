@@ -155,7 +155,7 @@ protected:
   bool gripper_effort_mode_running_{false};
 
   // Logger
-  rclcpp::Logger get_logger() const override
+  rclcpp::Logger get_logger() const
 {
   return rclcpp::get_logger("trossen_arm_hardware");
 }
